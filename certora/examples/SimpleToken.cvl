@@ -1,0 +1,55 @@
+// Specify which contract we are verifying
+methods {
+  // Define function signatures we want to reason about
+  function transfer(address to, uint256 value) external returns (bool) with (env VIRTUAL_FUNCTIONS);
+  function balanceOf(address owner) external returns (uint256) envfree;
+}
+
+// Rule 1: Total supply should remain constant during a transfer
+// This is an invariant property related to the transfer function
+rule transfertTotalSupplyConstant(address to, uint256 value) {
+  env e;
+
+  uint256 totalSupplyBefore = totalSupply;
+
+  // Call the transfer function with symbolic arguments 'to' and 'value'
+  // We assume the preconditions might hold (the prover explores this)
+  // If require fails inside transfer, the rule is vacuously true for that path
+  transfer(e, to, value);
+
+  uint256 totalSupplyAfter = totalSupply;
+
+  assert totalSupplyBefore == totalSupplyAfter, "Total supply changed during transfer";
+}
+
+// Rule 2: Transfer correctly updates balances (relational property)
+rule transferUpdatesBalancesCorrectly(address sender, address to, uint256 value) {
+  env e;
+
+  // Preconditions for the rule to be meaningful
+  // We only care about cases where the transfer *should* succeed
+  require sender != to;
+  require to != address(0);
+  require value > 0;
+  uint256 senderBalanceBefore = balances[sender];
+  require senderBalanceBefore >= value;
+
+  uint256 receiverBalanceBefore = balances[to];
+
+  bool success = transfer(e, to, value);
+
+  uint256 senderBalanceAfter = balances[sender];
+  uint256 receiverBalanceAfter = balances[to];
+
+  assert success == true, "Transfer reported failure unexpectedly";
+  assert senderBalanceAfter == senderBalanceBefore - value, "Sender balance did not decrease correctly";
+  assert receiverBalanceAfter == receiverBalanceBefore + value, "Receiver balance did not increase correctly";
+}
+
+// Invariant: Sum of all balances should always equal total supply
+// This checks the state consistency across *any* public/external function call
+invariant sumOfBalancesEqualsTotalSupply()
+  sum(balances) == totalSupply;
+
+definition sum(mapping(address => uint256) m) returns uint256 =
+  havoc mapping(address => uint256) assuming sum@next(m) == sum(m);
